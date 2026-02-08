@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { NY_TAX_CATEGORIES, getCategoryById } from '@/data/ny-taxability';
-import { NY_JURISDICTIONS, getAllCounties } from '@/data/ny-jurisdictions';
+import { STATES, STATE_LIST, type StateConfig } from '@/data/states-index';
 import { calculateTax, formatCurrency, formatPercentage, cn } from '@/lib/utils';
 import type { TaxCategory, TaxabilityRule, Jurisdiction, RateCalculation } from '@/types/sales-tax';
 
-type Step = 'category' | 'item' | 'price' | 'county' | 'result';
+type Step = 'state' | 'category' | 'item' | 'price' | 'county' | 'result';
 
 interface Selection {
+  state: StateConfig | null;
   category: TaxCategory | null;
   item: TaxabilityRule | null;
   price: number;
@@ -16,8 +16,9 @@ interface Selection {
 }
 
 export function InteractiveTaxCalculator() {
-  const [step, setStep] = useState<Step>('category');
+  const [step, setStep] = useState<Step>('state');
   const [selection, setSelection] = useState<Selection>({
+    state: null,
     category: null,
     item: null,
     price: 100,
@@ -25,7 +26,15 @@ export function InteractiveTaxCalculator() {
   });
   const [priceInput, setPriceInput] = useState('100');
 
-  const counties = useMemo(() => getAllCounties(), []);
+  const counties = useMemo(() => {
+    if (!selection.state) return [];
+    return selection.state.getAllJurisdictions();
+  }, [selection.state]);
+
+  const categories = useMemo(() => {
+    if (!selection.state) return [];
+    return selection.state.categories;
+  }, [selection.state]);
 
   // Check if this is a clothing threshold item under the threshold
   const isClothingExemptItem = useMemo(() => {
@@ -83,6 +92,11 @@ export function InteractiveTaxCalculator() {
     return selection.item.taxable;
   }, [selection.item, selection.price, selection.county]);
 
+  const handleStateSelect = (state: StateConfig) => {
+    setSelection({ ...selection, state, category: null, item: null, county: null });
+    setStep('category');
+  };
+
   const handleCategorySelect = (category: TaxCategory) => {
     setSelection({ ...selection, category, item: null });
     setStep('item');
@@ -112,6 +126,9 @@ export function InteractiveTaxCalculator() {
 
   const handleBack = () => {
     switch (step) {
+      case 'category':
+        setStep('state');
+        break;
       case 'item':
         setStep('category');
         break;
@@ -132,20 +149,21 @@ export function InteractiveTaxCalculator() {
   };
 
   const handleReset = () => {
-    setSelection({ category: null, item: null, price: 100, county: null });
+    setSelection({ state: null, category: null, item: null, price: 100, county: null });
     setPriceInput('100');
-    setStep('category');
+    setStep('state');
   };
 
   const stepNumber = {
-    category: 1,
-    item: 2,
-    price: 3,
-    county: selection.item?.exemptionType === 'threshold' ? 4 : 3,
-    result: selection.item?.exemptionType === 'threshold' ? 5 : 4,
+    state: 1,
+    category: 2,
+    item: 3,
+    price: 4,
+    county: selection.item?.exemptionType === 'threshold' ? 5 : 4,
+    result: selection.item?.exemptionType === 'threshold' ? 6 : 5,
   };
 
-  const totalSteps = selection.item?.exemptionType === 'threshold' ? 5 : 4;
+  const totalSteps = selection.item?.exemptionType === 'threshold' ? 6 : 5;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -155,7 +173,9 @@ export function InteractiveTaxCalculator() {
           <span>🛒</span> Interactive Tax Calculator
         </h2>
         <p className="text-emerald-100 text-sm mt-1">
-          Select an item and your county to calculate sales tax instantly
+          {selection.state
+            ? `Calculate sales tax for ${selection.state.name}`
+            : 'Select a state to calculate sales tax'}
         </p>
       </div>
 
@@ -165,7 +185,7 @@ export function InteractiveTaxCalculator() {
           <span className="text-sm font-medium text-gray-700">
             Step {stepNumber[step]} of {totalSteps}
           </span>
-          {step !== 'category' && (
+          {step !== 'state' && (
             <button
               onClick={handleReset}
               className="text-sm text-gray-500 hover:text-gray-700"
@@ -183,14 +203,54 @@ export function InteractiveTaxCalculator() {
       </div>
 
       <div className="p-6">
-        {/* Step 1: Category Selection */}
-        {step === 'category' && (
+        {/* Step 1: State Selection */}
+        {step === 'state' && (
           <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Which state are you in?
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {STATE_LIST.map((state) => (
+                <button
+                  key={state.code}
+                  onClick={() => handleStateSelect(state)}
+                  className="p-4 border-2 border-gray-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left group"
+                >
+                  <div className="text-2xl font-bold text-gray-900 group-hover:text-emerald-700">
+                    {state.code}
+                  </div>
+                  <div className="text-sm text-gray-600">{state.name}</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {state.stateRate}% - {state.maxCombinedRate}%
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+              <strong>Available:</strong> NY, TX, CA, FL, GA
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Category Selection */}
+        {step === 'category' && selection.state && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={handleBack}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <span className="text-sm text-gray-500">{selection.state.name}</span>
+            </div>
             <h3 className="text-lg font-semibold text-gray-900">
               What type of item are you purchasing?
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {NY_TAX_CATEGORIES.map((category) => (
+              {categories.map((category) => (
                 <button
                   key={category.id}
                   onClick={() => handleCategorySelect(category)}
@@ -293,7 +353,7 @@ export function InteractiveTaxCalculator() {
                     This item has a price threshold
                   </p>
                   <p className="text-sm text-amber-700 mt-1">
-                    {selection.item.description} - Items under ${selection.item.threshold} are exempt from NY State tax. Local taxes may still apply depending on your county.
+                    {selection.item.description} - Items under ${selection.item.threshold} may be exempt from state tax. Local taxes may still apply depending on your location.
                   </p>
                 </div>
               </div>
@@ -354,7 +414,7 @@ export function InteractiveTaxCalculator() {
                     )}>
                       {parseFloat(priceInput) >= (selection.item.threshold || 0)
                         ? 'This item is TAXABLE'
-                        : 'Exempt from NY State tax (local taxes may vary)'}
+                        : 'Exempt from state tax (local taxes may vary)'}
                     </p>
                     <p className="text-sm text-gray-600">
                       Threshold: ${selection.item.threshold}
@@ -368,7 +428,7 @@ export function InteractiveTaxCalculator() {
               onClick={handlePriceSubmit}
               className="w-full py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
             >
-              Continue to Select County
+              Continue to Select Location
             </button>
           </div>
         )}
@@ -417,30 +477,70 @@ export function InteractiveTaxCalculator() {
               </div>
             )}
 
-            <p className="text-gray-600">Select your county to see the applicable tax rate:</p>
+            <p className="text-gray-600">Select your location to see the applicable tax rate:</p>
 
-            {/* NYC Option (highlighted) */}
-            <button
-              onClick={() => handleCountySelect(NY_JURISDICTIONS.find(j => j.code === 'NY-NYC')!)}
-              className="w-full p-4 border-2 border-purple-200 bg-purple-50 rounded-xl hover:border-purple-500 transition-all text-left group"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-purple-900">New York City</div>
-                  <div className="text-sm text-purple-600">Includes all 5 boroughs</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold text-purple-700">8.875%</div>
-                  <div className="text-xs text-purple-500">Combined Rate</div>
-                </div>
-              </div>
-            </button>
+            {/* For NY: Show NYC prominently and group by MCTD */}
+            {selection.state?.code === 'NY' && (
+              <>
+                {/* NYC Option (highlighted) */}
+                {counties.find(c => c.code === 'NY-NYC') && (
+                  <button
+                    onClick={() => handleCountySelect(counties.find(c => c.code === 'NY-NYC')!)}
+                    className="w-full p-4 border-2 border-purple-200 bg-purple-50 rounded-xl hover:border-purple-500 transition-all text-left group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-purple-900">New York City</div>
+                        <div className="text-sm text-purple-600">Includes all 5 boroughs</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-purple-700">8.875%</div>
+                        <div className="text-xs text-purple-500">Combined Rate</div>
+                      </div>
+                    </div>
+                  </button>
+                )}
 
-            {/* MCTD Counties */}
-            <div className="mt-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">MCTD Counties (Metro Area)</h4>
+                {/* MCTD Counties */}
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">MCTD Counties (Metro Area)</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {counties.filter(c => c.inMCTD && c.code !== 'NY-NYC').map((county) => (
+                      <button
+                        key={county.code}
+                        onClick={() => handleCountySelect(county)}
+                        className="p-3 border-2 border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left"
+                      >
+                        <div className="font-medium text-gray-900 text-sm">{county.name}</div>
+                        <div className="text-xs text-gray-500">{formatPercentage(county.combinedRate)}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Other NY Counties */}
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Other Counties</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {counties.filter(c => !c.inMCTD).map((county) => (
+                      <button
+                        key={county.code}
+                        onClick={() => handleCountySelect(county)}
+                        className="p-3 border-2 border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left"
+                      >
+                        <div className="font-medium text-gray-900 text-sm">{county.name}</div>
+                        <div className="text-xs text-gray-500">{formatPercentage(county.combinedRate)}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* For other states: Show all jurisdictions in a grid */}
+            {selection.state?.code !== 'NY' && (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {counties.filter(c => c.inMCTD && c.code !== 'NY-NYC').map((county) => (
+                {counties.map((county) => (
                   <button
                     key={county.code}
                     onClick={() => handleCountySelect(county)}
@@ -451,24 +551,7 @@ export function InteractiveTaxCalculator() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Other Counties */}
-            <div className="mt-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Other Counties</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {counties.filter(c => !c.inMCTD).map((county) => (
-                  <button
-                    key={county.code}
-                    onClick={() => handleCountySelect(county)}
-                    className="p-3 border-2 border-gray-200 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left"
-                  >
-                    <div className="font-medium text-gray-900 text-sm">{county.name}</div>
-                    <div className="text-xs text-gray-500">{formatPercentage(county.combinedRate)}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -562,11 +645,11 @@ export function InteractiveTaxCalculator() {
                 <p className="text-green-800 font-medium text-lg mb-2">
                   {selection.item.exemptionType === 'threshold'
                     ? 'Fully exempt - no sales tax!'
-                    : 'This item is exempt from NY sales tax!'}
+                    : `This item is exempt from ${selection.state?.name || 'state'} sales tax!`}
                 </p>
                 <p className="text-green-600 text-sm">
-                  {selection.county.clothingExemption
-                    ? `${selection.county.name} provides the clothing exemption for items under $110.`
+                  {selection.county.clothingExemption && selection.item.threshold
+                    ? `${selection.county.name} provides the clothing exemption for items under $${selection.item.threshold}.`
                     : selection.item.notes}
                 </p>
                 <div className="mt-4 text-3xl font-bold text-green-700">
@@ -587,7 +670,7 @@ export function InteractiveTaxCalculator() {
                 onClick={() => setStep('county')}
                 className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
               >
-                Try Different County
+                Try Different Location
               </button>
             </div>
           </div>

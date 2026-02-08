@@ -1,21 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { RateCalculator, TaxabilityWizard, ComplianceDashboard, ResearchDatabase, InteractiveTaxCalculator, SalesTaxChat } from '@/components';
+import { RateCalculator, TaxabilityWizard, ComplianceDashboard, ResearchDatabase, InteractiveTaxCalculator } from '@/components';
 import { cn } from '@/lib/utils';
 
-type Tab = 'ai-chat' | 'interactive' | 'rates' | 'taxability' | 'compliance' | 'research';
+type Tab = 'interactive' | 'rates' | 'taxability' | 'compliance' | 'research';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>('ai-chat');
+  const [activeTab, setActiveTab] = useState<Tab>('interactive');
 
   const tabs: { id: Tab; label: string; icon: string; description: string }[] = [
-    { id: 'ai-chat', label: 'AI Chat', icon: '🤖', description: '22 States' },
-    { id: 'interactive', label: 'Quick Calc', icon: '🛒', description: 'NY Only' },
-    { id: 'rates', label: 'Rate Lookup', icon: '🧮', description: 'NY Only' },
-    { id: 'taxability', label: 'Taxability', icon: '📋', description: 'NY Only' },
-    { id: 'compliance', label: 'Compliance', icon: '📅', description: 'NY Only' },
-    { id: 'research', label: 'Research', icon: '📚', description: 'NY Bulletins' },
+    { id: 'interactive', label: 'Quick Calc', icon: '🛒', description: 'Item + County' },
+    { id: 'rates', label: 'Rate Lookup', icon: '🧮', description: 'By ZIP/County' },
+    { id: 'taxability', label: 'Taxability', icon: '📋', description: 'Is it taxable?' },
+    { id: 'compliance', label: 'Compliance', icon: '📅', description: 'Filing calendar' },
+    { id: 'research', label: 'Research', icon: '📚', description: 'Tax bulletins' },
   ];
 
   return (
@@ -78,7 +77,7 @@ export default function Home() {
 
         {/* Tab Navigation */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
-          <div className="grid grid-cols-6">
+          <div className="grid grid-cols-5">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -100,7 +99,6 @@ export default function Home() {
 
         {/* Active Component */}
         <div className="transition-all">
-          {activeTab === 'ai-chat' && <SalesTaxChat />}
           {activeTab === 'interactive' && <InteractiveTaxCalculator />}
           {activeTab === 'rates' && <RateCalculator />}
           {activeTab === 'taxability' && <TaxabilityWizard />}
