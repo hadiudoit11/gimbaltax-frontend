@@ -1,20 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { RateCalculator, TaxabilityWizard, ComplianceDashboard, ResearchDatabase, InteractiveTaxCalculator } from '@/components';
+import { RateCalculator, TaxabilityWizard, ComplianceDashboard, ResearchDatabase, InteractiveTaxCalculator, SalesTaxChat } from '@/components';
 import { cn } from '@/lib/utils';
 
-type Tab = 'interactive' | 'rates' | 'taxability' | 'compliance' | 'research';
+type Tab = 'ai-chat' | 'interactive' | 'rates' | 'taxability' | 'compliance' | 'research';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>('interactive');
+  const [activeTab, setActiveTab] = useState<Tab>('ai-chat');
 
   const tabs: { id: Tab; label: string; icon: string; description: string }[] = [
-    { id: 'interactive', label: 'Quick Calc', icon: '🛒', description: 'Item + County' },
-    { id: 'rates', label: 'Rate Lookup', icon: '🧮', description: 'By ZIP/County' },
-    { id: 'taxability', label: 'Taxability', icon: '📋', description: 'Is it taxable?' },
-    { id: 'compliance', label: 'Compliance', icon: '📅', description: 'Filing calendar' },
-    { id: 'research', label: 'Research', icon: '📚', description: 'Tax bulletins' },
+    { id: 'ai-chat', label: 'AI Chat', icon: '🤖', description: '22 States' },
+    { id: 'interactive', label: 'Quick Calc', icon: '🛒', description: 'NY Only' },
+    { id: 'rates', label: 'Rate Lookup', icon: '🧮', description: 'NY Only' },
+    { id: 'taxability', label: 'Taxability', icon: '📋', description: 'NY Only' },
+    { id: 'compliance', label: 'Compliance', icon: '📅', description: 'NY Only' },
+    { id: 'research', label: 'Research', icon: '📚', description: 'NY Bulletins' },
   ];
 
   return (
@@ -29,7 +30,7 @@ export default function Home() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-slate-900">Gimbal</h1>
-                <p className="text-xs text-slate-500">NY Sales Tax</p>
+                <p className="text-xs text-slate-500">Sales Tax AI</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -51,21 +52,21 @@ export default function Home() {
         {/* Hero Section */}
         <div className="mb-8 text-center">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">
-            New York Sales Tax Compliance
+            AI-Powered Sales Tax Compliance
           </h2>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-            Interactive tools for understanding NY sales tax rates, taxability rules,
-            filing requirements, and official guidance.
+            Ask questions about sales tax across 22 researched states. Our AI agent uses
+            RAG to retrieve answers from official government sources.
           </p>
         </div>
 
         {/* Stats Banner */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { label: 'State Rate', value: '4.0%', color: 'bg-blue-500' },
-            { label: 'Max Combined', value: '8.875%', color: 'bg-purple-500' },
-            { label: 'MCTD Counties', value: '12', color: 'bg-green-500' },
-            { label: 'TB Bulletins', value: '12+', color: 'bg-orange-500' },
+            { label: 'States Researched', value: '22', color: 'bg-blue-500' },
+            { label: 'Documents Indexed', value: '37K+', color: 'bg-purple-500' },
+            { label: 'States Pending', value: '26', color: 'bg-orange-500' },
+            { label: 'Goal', value: '50', color: 'bg-green-500' },
           ].map((stat, index) => (
             <div key={index} className="bg-white rounded-lg border border-slate-200 p-4 text-center">
               <div className={cn('inline-block w-2 h-2 rounded-full mb-2', stat.color)} />
@@ -77,7 +78,7 @@ export default function Home() {
 
         {/* Tab Navigation */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
-          <div className="grid grid-cols-5">
+          <div className="grid grid-cols-6">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -99,6 +100,7 @@ export default function Home() {
 
         {/* Active Component */}
         <div className="transition-all">
+          {activeTab === 'ai-chat' && <SalesTaxChat />}
           {activeTab === 'interactive' && <InteractiveTaxCalculator />}
           {activeTab === 'rates' && <RateCalculator />}
           {activeTab === 'taxability' && <TaxabilityWizard />}
@@ -111,10 +113,11 @@ export default function Home() {
           <h3 className="font-semibold text-slate-900 mb-4">About This Demo</h3>
           <div className="grid md:grid-cols-3 gap-6 text-sm text-slate-600">
             <div>
-              <h4 className="font-medium text-slate-900 mb-2">📊 Data Sources</h4>
+              <h4 className="font-medium text-slate-900 mb-2">🤖 How It Works</h4>
               <p>
-                All tax rates and rules are based on official NY Department of Taxation
-                and Finance publications and Technical Bulletins (TB-ST series).
+                Our AI agent crawled official state tax department websites and indexed
+                37,500+ documents into a knowledge base. Ask any question and get answers
+                with context from real government sources.
               </p>
             </div>
             <div>
@@ -125,14 +128,11 @@ export default function Home() {
               </p>
             </div>
             <div>
-              <h4 className="font-medium text-slate-900 mb-2">🔗 Official Resources</h4>
-              <ul className="space-y-1">
-                <li>
-                  <a href="https://www.tax.ny.gov/bus/st/stidx.htm" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                    NY Sales Tax Home
-                  </a>
-                </li>
-              </ul>
+              <h4 className="font-medium text-slate-900 mb-2">📈 Progress</h4>
+              <p>
+                22 out of 50 states researched. Following the journey to cover all U.S.
+                states with sales tax.
+              </p>
             </div>
           </div>
         </div>
