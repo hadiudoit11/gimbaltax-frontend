@@ -1,0 +1,2466 @@
+openapi: 3.0.3
+info:
+  title: U.S. Payroll Tax Engine API
+  description: |
+    Comprehensive API for managing U.S. payroll tax configurations with AI-powered research capabilities.
+    
+    ## Features
+    - **Jurisdiction Management**: Hierarchical federal/state/local tax jurisdictions
+    - **Tax Configuration**: Unified schema for all U.S. payroll taxes (FICA, FUTA, SUI, SDI, PFML, local taxes)
+    - **AI Agent Research**: Automated tax research with real-time streaming progress
+    - **Review Workflow**: Compliance manager approval process for AI-generated taxes
+    - **Tax Calculations**: Real-time payroll tax liability calculations
+    - **Compliance Events**: AI-powered compliance event management with approval workflows
+    - **Audit Trail**: Complete version history and change tracking
+    
+    ## AI Research Workflow
+    1. **Research**: `POST /agents/research/` - Start AI agent research session (returns immediately with session_id)
+    2. **Stream Progress**: `GET /agents/stream/{session_id}/` - Connect to Server-Sent Events for real-time progress
+    3. **Get Results**: `GET /agents/results/{session_id}/` - Retrieve final research results and pending configs
+    4. **Review**: `GET /tax-configs/pending/` - List all pending configurations awaiting approval (database source)
+    5. **Approve**: `POST /agents/approve/{id}/` or `POST /agents/approve-batch/` - Approve configs to make them active
+    6. **Use**: `GET /tax-configs/?status=active` - Approved configs available for tax calculations
+    
+    **Real-time Features**:
+    - Server-Sent Events (SSE) streaming for live agent progress updates
+    - Background processing with immediate response and session tracking
+    - Progressive status updates: thinking → search → validation → complete
+    
+    **Professional OpenAI Agents SDK Integration**:
+    - Uses OpenAI GPT-4o agents with structured outputs and web search tools
+    - Two-tier classification system: State Taxes vs Minimum Wages → Federal/NY/PA routing
+    - Real web search on official government websites (IRS, pa.gov, ny.gov)
+    - Complex rate parsing (handles "2.1% to 9.9%" → extracts 2.1%)
+    - Field normalization ("Both" → ["employer", "employee"])
+    - Fallback responses when agents fail or timeout (30 second timeout)
+    - All agent responses visible in `raw_agent_response` field
+    
+    **Persistence**: All agent-generated configs persist in database until approved/rejected (no cache dependency).
+    
+    ## Authentication
+    All endpoints require JWT authentication via Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+  version: 1.0.0
+  contact:
+    name: Payroll Tax Engine Support
+    email: support@example.com
+  license:
+    name: Proprietary
+    url: https://example.com/license
+
+servers:
+  - url: https://api.payrolltax.example.com/v1
+    description: Production server
+  - url: https://staging-api.payrolltax.example.com/v1
+    description: Staging server
+  - url: http://localhost:8000/api/v1
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Jurisdictions
+  /jurisdictions/:
+    get:
+      summary: List jurisdictions
+      description: Get paginated list of tax jurisdictions with optional filtering
+      tags: [Jurisdictions]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: jurisdiction_type
+          in: query
+          description: Filter by jurisdiction type
+          schema:
+            $ref: '#/components/schemas/JurisdictionType'
+        - name: is_active
+          in: query
+          description: Filter by active status
+          schema:
+            type: boolean
+        - name: parent
+          in: query
+          description: Filter by parent jurisdiction ID
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Search by code or name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedJurisdictions'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      summary: Create jurisdiction
+      description: Create a new tax jurisdiction
+      tags: [Jurisdictions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JurisdictionCreate'
+      responses:
+        '201':
+          description: Jurisdiction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jurisdiction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /jurisdictions/{id}/:
+    get:
+      summary: Get jurisdiction details
+      description: Retrieve detailed information about a specific jurisdiction
+      tags: [Jurisdictions]
+      parameters:
+        - $ref: '#/components/parameters/JurisdictionIdParam'
+      responses:
+        '200':
+          description: Jurisdiction details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JurisdictionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Update jurisdiction
+      description: Update an existing jurisdiction
+      tags: [Jurisdictions]
+      parameters:
+        - $ref: '#/components/parameters/JurisdictionIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JurisdictionUpdate'
+      responses:
+        '200':
+          description: Jurisdiction updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jurisdiction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Tax Configurations
+  /tax-configs/:
+    get:
+      summary: List tax configurations
+      description: Get paginated list of tax configurations with advanced filtering
+      tags: [Tax Configurations]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: jurisdiction
+          in: query
+          description: Filter by jurisdiction ID
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Filter by tax category
+          schema:
+            $ref: '#/components/schemas/TaxCategory'
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            $ref: '#/components/schemas/TaxConfigStatus'
+        - name: effective_from
+          in: query
+          description: Filter by effective date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: search
+          in: query
+          description: Search by tax_id, name, or authority
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTaxConfigs'
+
+    post:
+      summary: Create tax configuration
+      description: Create a new tax configuration
+      tags: [Tax Configurations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxConfigCreate'
+      responses:
+        '201':
+          description: Tax configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /tax-configs/{id}/:
+    get:
+      summary: Get tax configuration details
+      description: Retrieve detailed information about a specific tax configuration
+      tags: [Tax Configurations]
+      parameters:
+        - $ref: '#/components/parameters/TaxConfigIdParam'
+      responses:
+        '200':
+          description: Tax configuration details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxConfigDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Update tax configuration
+      description: Update an existing tax configuration
+      tags: [Tax Configurations]
+      parameters:
+        - $ref: '#/components/parameters/TaxConfigIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxConfigUpdate'
+      responses:
+        '200':
+          description: Tax configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete tax configuration
+      description: Delete a tax configuration (soft delete)
+      tags: [Tax Configurations]
+      parameters:
+        - $ref: '#/components/parameters/TaxConfigIdParam'
+      responses:
+        '204':
+          description: Tax configuration deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tax-configs/pending/:
+    get:
+      summary: List pending tax configurations
+      description: |
+        Get tax configurations awaiting review (draft status).
+        
+        **Primary Endpoint**: This is the recommended endpoint for frontends 
+        to get pending configurations for approval workflow. It queries the 
+        database directly and shows all draft configs regardless of which 
+        agent session created them.
+        
+        **Workflow**: Use the `id` field from results with approval endpoints:
+        - `POST /agents/approve/{config_id}/`
+        - `POST /agents/reject/{config_id}/`
+        - `POST /agents/approve-batch/`
+        
+        **Persistence**: Results persist in database until approved/rejected.
+      tags: [Tax Configurations]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: created_by
+          in: query
+          description: Filter by creator user ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pending tax configurations from database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPendingTaxConfigs'
+
+  # Agent Research & Workflow
+  /agents/research/:
+    post:
+      summary: Start agent tax research
+      description: |
+        Initiate AI-powered tax research with natural language query using OpenAI agents.
+        
+        **Database Persistence**: This endpoint ALWAYS creates TaxConfig records 
+        with `status='draft'` in the database that require approval/rejection.
+        These pending configurations persist until explicitly approved or rejected.
+        
+        **Real-time Workflow**: 
+        1. Returns session_id immediately (202 response)
+        2. Professional OpenAI agents process query in background with SSE streaming
+        3. Two-tier classification routes to specialized tax research agents
+        4. Agents search official government websites with web search tools
+        5. Complex field parsing and normalization converts agent responses to unified schema
+        6. Creates draft TaxConfig records in database for any valid taxes found
+        7. Use `/agents/stream/{session_id}/` for live progress updates
+        8. Use `/agents/results/{session_id}/` for final results summary
+        9. Use `/tax-configs/pending/` to view all pending configs awaiting approval
+        
+        **Professional OpenAI Agents Architecture**:
+        - **Classification**: First classifies query as "State Taxes" vs "Minimum Wages"
+        - **Routing**: For State Taxes, routes to Federal, Pennsylvania, or New York agents
+        - **Specialized Agents**: Each agent has domain expertise and official website access
+        - **Web Search**: Agents use WebSearchTool with government domain filtering
+        - **Structured Output**: Pydantic schemas ensure consistent tax data format
+        - **Field Normalization**: Converts complex agent responses to schema-compliant format
+        - **Rate Parsing**: Handles complex rates like "Experience-rated: 2.1% to 9.9%" → 2.1%
+        - **Validation**: Full schema validation before creating database records
+        - **Fallback**: Creates pending configs even when agents fail (with error details)
+        
+        **Example Agent Responses**:
+        - Pennsylvania: Returns SUI taxes with rates 1.419% to 10.3734%, $10,000 wage base
+        - New York: Returns 4+ taxes (SUI, MCTMT, PFL, SDI) with detailed requirements
+        - Federal: Returns FICA components (Social Security 12.4%, Medicare 2.9%)
+        
+        **Agent Capabilities & Examples**:
+        ```
+        Query: "Pennsylvania payroll taxes 2025"
+        → classify1: "State Taxes" → classify: "Pennsylvania" → pennsylvania agent
+        → Returns: SUI taxes with rates 1.419% to 10.3734%, $10,000 wage base, Form UC-657
+        
+        Query: "New York Long Island taxes"  
+        → classify1: "State Taxes" → classify: "New York" → new_york agent
+        → Returns: 4+ taxes (SUI 2.1-9.9%, MCTMT 0.055%, PFL 0.388%, SDI, etc.)
+        
+        Query: "Federal FICA taxes 2025"
+        → classify1: "State Taxes" → classify: "Federal" → federal agent  
+        → Returns: Social Security 12.4%, Medicare 2.9%, wage bases, Form 941
+        ```
+        
+        **Field Parsing & Normalization**:
+        - Rate: "Experience-rated: 2.1% to 9.9%" → extracts 2.1% for calculations
+        - Collection: "Both" → ["employer", "employee"] array format
+        - Frequency: "Quarterly (< $300 per quarter), Monthly ($300–$999)..." → "quarterly"
+        - Complex data preserved in `rate_description` field for human review
+        
+        **Result**: Every research session creates database-persisted draft tax configs for approval.
+      tags: [Agent Research]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentResearchRequest'
+      responses:
+        '202':
+          description: Research session started successfully, draft configs created in database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /agents/stream/{session_id}/:
+    get:
+      summary: Stream agent research progress
+      description: |
+        Server-Sent Events (SSE) stream providing real-time agent progress updates.
+        
+        **Event Types**:
+        - `status`: General status updates and progress messages
+        - `progress`: Numeric progress percentage (0-100)
+        - `agent_start`: Agent begins processing query
+        - `classification`: Query classification and routing decisions
+        - `search`: Web searching official government sources (IRS, pa.gov, ny.gov)
+        - `generation`: Agent generating structured tax data
+        - `validation`: Converting and validating agent responses
+        - `complete`: Research finished, draft configs created in database
+        - `error`: Agent failed with error details and fallback handling
+        
+        **Usage**: Connect immediately after receiving session_id from research endpoint.
+        Stream provides live updates as agent processes query and creates pending configs.
+      tags: [Agent Research]
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Agent research session ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SSE stream of agent progress events
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/AgentStreamEvent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/results/{session_id}/:
+    get:
+      summary: Get agent research results
+      description: |
+        Retrieve final results from completed agent research session.
+        
+        **Important**: The `pending_configs` array in the response contains database 
+        record IDs that can be used with approval endpoints. However, for the most 
+        up-to-date list of pending configurations, use `/tax-configs/pending/` 
+        which queries the database directly.
+        
+        **Persistence**: Draft TaxConfig records created by this session persist 
+        in the database regardless of cache expiration.
+      tags: [Agent Research]
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Agent research session ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Agent research results with database-persisted pending configs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResearchResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/sessions/:
+    get:
+      summary: List agent research sessions
+      description: Get list of agent research sessions for current user
+      tags: [Agent Research]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: status
+          in: query
+          description: Filter by session status
+          schema:
+            $ref: '#/components/schemas/AgentSessionStatus'
+      responses:
+        '200':
+          description: Agent research sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentSessions'
+
+  # Review & Approval
+  /agents/approve/{config_id}/:
+    post:
+      summary: Approve pending tax configuration
+      description: Approve a draft tax configuration generated by agents
+      tags: [Review & Approval]
+      parameters:
+        - name: config_id
+          in: path
+          required: true
+          description: Tax configuration ID to approve
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalRequest'
+      responses:
+        '200':
+          description: Tax configuration approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/reject/{config_id}/:
+    post:
+      summary: Reject pending tax configuration
+      description: Reject a draft tax configuration generated by agents
+      tags: [Review & Approval]
+      parameters:
+        - name: config_id
+          in: path
+          required: true
+          description: Tax configuration ID to reject
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectionRequest'
+      responses:
+        '200':
+          description: Tax configuration rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RejectionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/approve-batch/:
+    post:
+      summary: Bulk approve tax configurations
+      description: Approve multiple pending tax configurations at once
+      tags: [Review & Approval]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkApprovalRequest'
+      responses:
+        '200':
+          description: Bulk approval completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkApprovalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Tax Calculations
+  /calculate/:
+    post:
+      summary: Calculate tax liabilities
+      description: Calculate payroll tax liabilities for an employee
+      tags: [Tax Calculations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxCalculationRequest'
+      responses:
+        '200':
+          description: Tax calculation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxCalculationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /applicable-taxes/:
+    get:
+      summary: Get applicable taxes
+      description: Get all taxes applicable to a jurisdiction and date
+      tags: [Tax Calculations]
+      parameters:
+        - name: jurisdiction_code
+          in: query
+          required: true
+          description: Jurisdiction code (e.g., "US-NY")
+          schema:
+            type: string
+        - name: as_of_date
+          in: query
+          description: Date to check (YYYY-MM-DD, defaults to today)
+          schema:
+            type: string
+            format: date
+        - name: category
+          in: query
+          description: Filter by tax category
+          schema:
+            $ref: '#/components/schemas/TaxCategory'
+      responses:
+        '200':
+          description: Applicable taxes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicableTaxesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Validation
+  /validate-payload/:
+    post:
+      summary: Validate tax payload
+      description: Validate a tax configuration payload against the schema
+      tags: [Validation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayloadValidationRequest'
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayloadValidationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Compliance Events
+  /compliance-events/:
+    get:
+      summary: List compliance events
+      description: Get paginated list of compliance events with filtering and search
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: event_type
+          in: query
+          description: Filter by event type
+          schema:
+            $ref: '#/components/schemas/EventType'
+        - name: priority
+          in: query
+          description: Filter by priority level
+          schema:
+            $ref: '#/components/schemas/EventPriority'
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            $ref: '#/components/schemas/EventStatus'
+        - name: jurisdiction
+          in: query
+          description: Filter by jurisdiction ID
+          schema:
+            type: integer
+        - name: source
+          in: query
+          description: Filter by event source
+          schema:
+            $ref: '#/components/schemas/EventSource'
+        - name: search
+          in: query
+          description: Search by title and description
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedComplianceEvents'
+
+    post:
+      summary: Create compliance event
+      description: Create a new compliance event manually
+      tags: [Compliance Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplianceEventCreate'
+      responses:
+        '201':
+          description: Compliance event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /compliance-events/{id}/:
+    get:
+      summary: Get compliance event details
+      description: Retrieve detailed information about a specific compliance event
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/ComplianceEventIdParam'
+      responses:
+        '200':
+          description: Compliance event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEventDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      summary: Update compliance event
+      description: Update an existing compliance event
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/ComplianceEventIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplianceEventUpdate'
+      responses:
+        '200':
+          description: Compliance event updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete compliance event
+      description: Delete a compliance event
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/ComplianceEventIdParam'
+      responses:
+        '204':
+          description: Compliance event deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /compliance-events/pending/:
+    get:
+      summary: List pending compliance events
+      description: |
+        Get compliance events in draft status awaiting approval.
+        
+        **Primary Endpoint**: Use this to get AI-generated events needing approval.
+        Events persist in database until approved/rejected.
+        
+        **Parameters**:
+        - `ai_generated=true` - Filter to only AI-generated events
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: ai_generated
+          in: query
+          description: Filter to only AI-generated events
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Pending compliance events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPendingComplianceEvents'
+
+  /compliance-events/upcoming/:
+    get:
+      summary: List upcoming compliance events
+      description: Get events due within specified timeframe
+      tags: [Compliance Events]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: days
+          in: query
+          description: Number of days to look ahead (default 30)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        '200':
+          description: Upcoming compliance events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedComplianceEvents'
+
+  # Event Research
+  /events/research/:
+    post:
+      summary: Start compliance event research
+      description: |
+        Initiate AI-powered compliance event research with natural language query.
+        
+        **Database Persistence**: Creates ComplianceEvent records with `status='draft'` 
+        that require approval/rejection workflow.
+        
+        **AI Research Workflow**: 
+        1. Returns session_id immediately (202 response)
+        2. AI agent processes query to identify compliance events
+        3. Creates draft ComplianceEvent records in database
+        4. Use `/events/research-results/{session_id}/` for final results
+        5. Use `/compliance-events/pending/` to view all pending events
+        6. Approve/reject events using event approval endpoints
+      tags: [Event Research]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventResearchRequest'
+      responses:
+        '202':
+          description: Event research session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResearchSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /events/research-results/{session_id}/:
+    get:
+      summary: Get event research results
+      description: Retrieve final results from completed event research session
+      tags: [Event Research]
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: Event research session ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event research results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResearchResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Event Approval
+  /events/approve/{event_id}/:
+    post:
+      summary: Approve compliance event
+      description: Approve a draft compliance event (changes status from draft to approved)
+      tags: [Event Approval]
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Compliance event ID to approve
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventApprovalRequest'
+      responses:
+        '200':
+          description: Compliance event approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/reject/{event_id}/:
+    post:
+      summary: Reject compliance event
+      description: Reject a draft compliance event (changes status from draft to rejected)
+      tags: [Event Approval]
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Compliance event ID to reject
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRejectionRequest'
+      responses:
+        '200':
+          description: Compliance event rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/approve-batch/:
+    post:
+      summary: Bulk approve compliance events
+      description: Approve multiple pending compliance events at once
+      tags: [Event Approval]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkEventApprovalRequest'
+      responses:
+        '200':
+          description: Bulk approval completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkEventApprovalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number for pagination
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: page_size
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    JurisdictionIdParam:
+      name: id
+      in: path
+      required: true
+      description: Jurisdiction ID
+      schema:
+        type: string
+
+    TaxConfigIdParam:
+      name: id
+      in: path
+      required: true
+      description: Tax configuration ID
+      schema:
+        type: string
+
+    ComplianceEventIdParam:
+      name: id
+      in: path
+      required: true
+      description: Compliance event ID
+      schema:
+        type: integer
+
+  schemas:
+    # Enums
+    JurisdictionType:
+      type: string
+      enum: [federal, state, territory, local]
+
+    LocalityType:
+      type: string
+      enum: [city, county, school_district, special_district, other]
+
+    TaxCategory:
+      type: string
+      enum: 
+        - income_tax
+        - social_insurance
+        - unemployment_insurance
+        - disability_insurance
+        - paid_family_medical_leave
+        - transit_tax
+        - head_tax
+        - payroll_expense_tax
+        - other
+
+    TaxConfigStatus:
+      type: string
+      enum: [active, inactive, draft, superseded]
+
+    AgentSessionStatus:
+      type: string
+      enum: [running, completed, failed]
+
+    CalculationMethod:
+      type: string
+      enum: 
+        - percentage_of_wages
+        - flat_amount_per_period
+        - progressive_table
+        - external_table_reference
+        - composite
+
+    EventType:
+      type: string
+      enum:
+        - tax_filing
+        - payment_due
+        - registration
+        - renewal
+        - audit
+        - rate_change
+        - law_change
+        - deadline
+        - report
+        - other
+
+    EventPriority:
+      type: string
+      enum: [low, medium, high, critical]
+
+    EventStatus:
+      type: string
+      enum: [draft, approved, rejected, completed, cancelled]
+
+    EventSource:
+      type: string
+      enum: [manual, ai_generated, imported]
+
+    # Base Models
+    Timestamp:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Total number of items
+        next:
+          type: string
+          nullable: true
+          description: URL for next page
+        previous:
+          type: string
+          nullable: true
+          description: URL for previous page
+        page:
+          type: integer
+          description: Current page number
+        page_size:
+          type: integer
+          description: Items per page
+        total_pages:
+          type: integer
+          description: Total number of pages
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+
+    # Jurisdiction Models
+    Jurisdiction:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          example: "US-NY-NYC"
+        name:
+          type: string
+          example: "New York City"
+        jurisdiction_type:
+          $ref: '#/components/schemas/JurisdictionType'
+        locality_type:
+          $ref: '#/components/schemas/LocalityType'
+          nullable: true
+        parent:
+          type: string
+          nullable: true
+          description: Parent jurisdiction ID
+        is_active:
+          type: boolean
+        tax_configs_count:
+          type: integer
+          description: Number of tax configurations in this jurisdiction
+      allOf:
+        - $ref: '#/components/schemas/Timestamp'
+
+    JurisdictionDetail:
+      allOf:
+        - $ref: '#/components/schemas/Jurisdiction'
+        - type: object
+          properties:
+            children:
+              type: array
+              items:
+                $ref: '#/components/schemas/Jurisdiction'
+            parent_details:
+              $ref: '#/components/schemas/Jurisdiction'
+              nullable: true
+            tax_configs:
+              type: array
+              items:
+                $ref: '#/components/schemas/TaxConfig'
+
+    JurisdictionCreate:
+      type: object
+      required: [code, name, jurisdiction_type]
+      properties:
+        code:
+          type: string
+          example: "US-CA-LA"
+        name:
+          type: string
+          example: "Los Angeles"
+        jurisdiction_type:
+          $ref: '#/components/schemas/JurisdictionType'
+        locality_type:
+          $ref: '#/components/schemas/LocalityType'
+        parent:
+          type: string
+          description: Parent jurisdiction ID
+        is_active:
+          type: boolean
+          default: true
+
+    JurisdictionUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        locality_type:
+          $ref: '#/components/schemas/LocalityType'
+        parent:
+          type: string
+        is_active:
+          type: boolean
+
+    PaginatedJurisdictions:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Jurisdiction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Tax Configuration Models
+    WageBase:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [none, annual, per_period]
+        per_employee:
+          type: boolean
+        amount:
+          type: number
+          nullable: true
+        currency:
+          type: string
+          enum: [USD]
+        linked_to:
+          type: string
+          nullable: true
+        reset_frequency:
+          type: string
+          enum: [calendar_year, fiscal_year, per_employment]
+          nullable: true
+
+    TaxBracket:
+      type: object
+      required: [min_wage, rate_percent]
+      properties:
+        min_wage:
+          type: number
+          minimum: 0
+        max_wage:
+          type: number
+          nullable: true
+          minimum: 0
+        rate_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        marginal:
+          type: boolean
+          default: true
+
+    Calculation:
+      type: object
+      required: [method]
+      properties:
+        method:
+          $ref: '#/components/schemas/CalculationMethod'
+        percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Extracted numeric percentage rate (e.g., 2.1 from "2.1% to 9.9%")
+        rate_description:
+          type: string
+          description: |
+            Original complex rate description from agent when rate is variable or complex.
+            Examples: "Experience-rated: 2.1% to 9.9%", "0.055% for payroll > $312,500"
+        flat_amount:
+          type: number
+          minimum: 0
+        period:
+          type: string
+          enum: [weekly, biweekly, semimonthly, monthly, quarterly, annually]
+        brackets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxBracket'
+        external_reference:
+          type: object
+          properties:
+            authority:
+              type: string
+            table_name:
+              type: string
+            publication_year:
+              type: integer
+            lookup_method:
+              type: string
+
+    TaxPayload:
+      type: object
+      required: [tax_id, name, category, jurisdiction, calculation]
+      properties:
+        tax_id:
+          type: string
+          example: "NY_SUI_2025"
+        name:
+          type: string
+          example: "New York State Unemployment Insurance"
+        category:
+          $ref: '#/components/schemas/TaxCategory'
+        sub_category:
+          type: string
+          example: "SUI"
+        authority:
+          type: string
+          example: "New York State Department of Labor"
+        jurisdiction:
+          type: object
+          required: [country, jurisdiction_type]
+          properties:
+            country:
+              type: string
+              enum: [US]
+            state:
+              type: string
+              pattern: "^[A-Z]{2}$"
+              nullable: true
+            locality:
+              type: string
+              nullable: true
+            jurisdiction_type:
+              $ref: '#/components/schemas/JurisdictionType'
+            locality_type:
+              $ref: '#/components/schemas/LocalityType'
+              nullable: true
+        collected_from:
+          type: array
+          items:
+            type: string
+            enum: [employee, employer]
+        remitted_by:
+          type: string
+          enum: [employer, employee, third_party]
+          default: employer
+        wage_base:
+          $ref: '#/components/schemas/WageBase'
+        calculation:
+          $ref: '#/components/schemas/Calculation'
+        remittance:
+          type: object
+          description: Filing and remittance requirements
+          properties:
+            form_name:
+              type: string
+              example: "Form NYS-45"
+              description: Official form name or number for filing
+            filing_frequency:
+              type: string
+              enum: [weekly, monthly, quarterly, annually, as_needed]
+              description: |
+                Normalized filing frequency. Complex descriptions are simplified to:
+                - quarterly: Most common, includes "Quarterly (< $300 per quarter)..." 
+                - monthly: Regular monthly filing
+                - weekly: Weekly filing requirements
+                - annually: Annual filing
+                - as_needed: Variable or conditional filing
+        # Additional optional fields...
+
+    TaxConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        tax_id:
+          type: string
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/TaxCategory'
+        sub_category:
+          type: string
+        authority:
+          type: string
+        jurisdiction:
+          $ref: '#/components/schemas/Jurisdiction'
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+        status:
+          $ref: '#/components/schemas/TaxConfigStatus'
+        schema_version:
+          type: integer
+        payload:
+          $ref: '#/components/schemas/TaxPayload'
+        created_by:
+          $ref: '#/components/schemas/User'
+          nullable: true
+        updated_by:
+          $ref: '#/components/schemas/User'
+          nullable: true
+        notes:
+          type: string
+      allOf:
+        - $ref: '#/components/schemas/Timestamp'
+
+    TaxConfigDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaxConfig'
+        - type: object
+          properties:
+            versions:
+              type: array
+              items:
+                $ref: '#/components/schemas/TaxConfigVersion'
+
+    TaxConfigVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        version_number:
+          type: integer
+        payload_snapshot:
+          $ref: '#/components/schemas/TaxPayload'
+        change_reason:
+          type: string
+        created_by:
+          $ref: '#/components/schemas/User'
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    TaxConfigCreate:
+      type: object
+      required: [tax_id, name, category, jurisdiction, effective_from, payload]
+      properties:
+        tax_id:
+          type: string
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/TaxCategory'
+        sub_category:
+          type: string
+        authority:
+          type: string
+        jurisdiction:
+          type: string
+          description: Jurisdiction ID
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: string
+          format: date
+          nullable: true
+        status:
+          $ref: '#/components/schemas/TaxConfigStatus'
+          default: active
+        payload:
+          $ref: '#/components/schemas/TaxPayload'
+        notes:
+          type: string
+
+    TaxConfigUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          $ref: '#/components/schemas/TaxCategory'
+        sub_category:
+          type: string
+        authority:
+          type: string
+        effective_to:
+          type: string
+          format: date
+        status:
+          $ref: '#/components/schemas/TaxConfigStatus'
+        payload:
+          $ref: '#/components/schemas/TaxPayload'
+        notes:
+          type: string
+
+    PaginatedTaxConfigs:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxConfig'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    PendingTaxConfig:
+      type: object
+      description: |
+        Tax configuration awaiting approval. These records persist in the database 
+        until explicitly approved or rejected (no cache dependency).
+      properties:
+        id:
+          type: string
+          description: Database ID for approval/rejection operations
+        tax_id:
+          type: string
+          description: Business identifier for the tax
+        name:
+          type: string
+          description: Human-readable tax name
+        category:
+          $ref: '#/components/schemas/TaxCategory'
+        jurisdiction:
+          type: object
+          description: Jurisdiction where this tax applies
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+              example: "US-PA"
+            name:
+              type: string
+              example: "Pennsylvania"
+        status:
+          type: string
+          enum: [draft]
+          description: Current status of the configuration (always draft for pending configs)
+        validation_status:
+          type: string
+          enum: [valid, invalid, warning]
+          description: Result of schema validation
+        validation_messages:
+          type: array
+          items:
+            type: string
+          description: Validation error messages if any
+        error:
+          type: string
+          description: Error message if status is 'error'
+          nullable: true
+        agent_session_id:
+          type: string
+          format: uuid
+          description: ID of the research session that created this config
+          nullable: true
+        created_by:
+          $ref: '#/components/schemas/User'
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedPendingTaxConfigs:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingTaxConfig'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Agent Research Models
+    AgentResearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          example: "Pennsylvania payroll taxes for small business 2025"
+          description: Natural language description of tax research needed
+        effective_date:
+          type: string
+          format: date
+          description: When the taxes should become effective (defaults to today)
+        auto_approve:
+          type: boolean
+          default: false
+          description: Whether to automatically approve valid tax configurations
+
+    AgentSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AgentSessionStatus'
+        query:
+          type: string
+        stream_url:
+          type: string
+          description: URL for SSE stream of progress updates
+        started_at:
+          type: string
+          format: date-time
+
+    AgentSession:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        query:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentSessionStatus'
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        user:
+          $ref: '#/components/schemas/User'
+
+    PaginatedAgentSessions:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentSession'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    AgentStreamEvent:
+      type: object
+      required: [type, timestamp, message]
+      properties:
+        type:
+          type: string
+          enum: 
+            - status
+            - progress  
+            - agent_start
+            - classification
+            - search
+            - generation
+            - validation
+            - error
+            - complete
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+          example: "Searching PA.gov for unemployment insurance requirements..."
+        agent:
+          type: string
+          enum: [classify, classify1, pennsylvania, new_york, federal, cleaner_upper]
+          description: |
+            Which professional agent is currently working:
+            - classify: Second-tier classification (Federal/NY/PA routing)
+            - classify1: First-tier classification (State Taxes vs Minimum Wages)  
+            - pennsylvania: Pennsylvania tax research agent
+            - new_york: New York tax research agent
+            - federal: Federal tax research agent
+            - cleaner_upper: Result standardization and cleanup agent
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Progress percentage
+        data:
+          type: object
+          description: Additional event-specific data
+          additionalProperties: true
+
+    ValidationError:
+      type: object
+      properties:
+        tax_index:
+          type: integer
+        error:
+          type: string
+        field_path:
+          type: string
+        raw_data:
+          type: object
+          additionalProperties: true
+
+    AgentResearchResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        query:
+          type: string
+          description: Original research query submitted
+        success:
+          type: boolean
+          description: Whether the research was successful
+        agent_category:
+          type: string
+          enum: [Pennsylvania, New York, Federal, State Taxes, Minimum Wages, Unknown]
+          description: |
+            Which specialized agent handled the research:
+            - Pennsylvania: PA-specific tax research agent  
+            - New York: NY-specific tax research agent
+            - Federal: Federal tax research agent (FICA, FUTA, etc.)
+            - State Taxes: Query was classified as state tax research
+            - Minimum Wages: Query was classified as minimum wage research  
+            - Unknown: Classification or routing failed
+        taxes_found:
+          type: integer
+          description: Number of taxes discovered by the agent
+        taxes_converted:
+          type: integer
+          description: Number of taxes successfully converted to unified schema
+        converted_taxes:
+          type: array
+          description: Raw tax data in unified schema format
+          items:
+            $ref: '#/components/schemas/TaxPayload'
+        validation_errors:
+          type: array
+          description: Errors encountered during validation
+          items:
+            $ref: '#/components/schemas/ValidationError'
+        pending_configs:
+          type: array
+          description: Database records created and ready for approval workflow
+          items:
+            $ref: '#/components/schemas/PendingTaxConfig'
+        raw_agent_response:
+          type: object
+          description: |
+            Complete unprocessed response from the professional OpenAI agent including:
+            - `output_text`: Human-readable summary of findings
+            - `output_parsed`: Structured Pydantic model output with taxes array
+            - `category`: Final agent classification result  
+            - `sdk_status`: Professional workflow completion status
+          properties:
+            output_text:
+              type: string
+              description: Human-readable agent findings summary
+            output_parsed:
+              type: object
+              description: Structured agent output with taxes array
+              properties:
+                taxes:
+                  type: array
+                  description: Array of tax objects from specialized agent
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        example: "New York State Unemployment Insurance"
+                      authority:
+                        type: string  
+                        example: "New York State Department of Labor"
+                      rate:
+                        type: string
+                        example: "Experience‑rated: 2.1% (lowest) to 9.9% (highest)"
+                      wage_base:
+                        type: string
+                        example: "$12,800 for 2025"
+                      form_number:
+                        type: string
+                        example: "Form NYS‑45"
+                      filing_frequency:
+                        type: string
+                        example: "Quarterly"
+                      collected_from:
+                        type: string
+                        example: "Employer"
+            category:
+              type: string
+              description: Final agent classification
+            sdk_status:
+              type: string
+              description: Professional workflow status
+          additionalProperties: true
+        started_at:
+          type: string
+          format: date-time
+          description: When the research session started
+        completed_at:
+          type: string
+          format: date-time
+          description: When the research session completed
+          nullable: true
+        error:
+          type: string
+          description: Error message if success is false
+          nullable: true
+
+    # Approval Models
+    ApprovalRequest:
+      type: object
+      properties:
+        effective_date:
+          type: string
+          format: date
+          description: When the tax should become effective (defaults to today)
+        notes:
+          type: string
+          description: Optional approval notes
+
+    RejectionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: Reason for rejection
+
+    RejectionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        tax_id:
+          type: string
+        status:
+          type: string
+          enum: [inactive]
+        rejected_by:
+          $ref: '#/components/schemas/User'
+        rejection_reason:
+          type: string
+        rejected_at:
+          type: string
+          format: date-time
+
+    BulkApprovalRequest:
+      type: object
+      required: [config_ids]
+      properties:
+        config_ids:
+          type: array
+          items:
+            type: string
+          description: Array of tax configuration IDs to approve
+        effective_date:
+          type: string
+          format: date
+          description: When the taxes should become effective
+        notes:
+          type: string
+
+    BulkApprovalResponse:
+      type: object
+      properties:
+        approved_count:
+          type: integer
+        error_count:
+          type: integer
+        approved_configs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              tax_id:
+                type: string
+              name:
+                type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              config_id:
+                type: string
+              error:
+                type: string
+
+    # Calculation Models
+    TaxCalculationRequest:
+      type: object
+      required: [employee_data, jurisdiction_code]
+      properties:
+        employee_data:
+          type: object
+          required: [wages]
+          properties:
+            employee_id:
+              type: string
+            wages:
+              type: number
+              minimum: 0
+              description: Current period wages
+            ytd_wages:
+              type: object
+              properties:
+                total_wages:
+                  type: number
+                taxable_wages:
+                  type: number
+              description: Year-to-date wages by category
+            resident_state:
+              type: string
+              pattern: "^[A-Z]{2}$"
+            resident_locality:
+              type: string
+            work_state:
+              type: string
+              pattern: "^[A-Z]{2}$"
+            work_locality:
+              type: string
+            exemptions:
+              type: integer
+              minimum: 0
+        jurisdiction_code:
+          type: string
+          example: "US-NY"
+        pay_period_data:
+          type: object
+          properties:
+            pay_date:
+              type: string
+              format: date
+            pay_period_start:
+              type: string
+              format: date
+            pay_period_end:
+              type: string
+              format: date
+            employer_info:
+              type: object
+              properties:
+                size:
+                  type: integer
+                  minimum: 1
+
+    TaxCalculationResult:
+      type: object
+      properties:
+        tax_id:
+          type: string
+        employee_liability:
+          type: number
+        employer_liability:
+          type: number
+        calculation_details:
+          type: object
+          additionalProperties: true
+        wage_base_used:
+          type: number
+        warnings:
+          type: array
+          items:
+            type: string
+
+    TaxCalculationResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxCalculationResult'
+        total_employee_liability:
+          type: number
+        total_employer_liability:
+          type: number
+        calculated_at:
+          type: string
+          format: date-time
+        jurisdiction_code:
+          type: string
+        applicable_taxes_count:
+          type: integer
+
+    ApplicableTaxesResponse:
+      type: object
+      properties:
+        jurisdiction_code:
+          type: string
+        as_of_date:
+          type: string
+          format: date
+        taxes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxConfig'
+        count:
+          type: integer
+
+    # Validation Models
+    PayloadValidationRequest:
+      type: object
+      required: [payload]
+      properties:
+        payload:
+          $ref: '#/components/schemas/TaxPayload'
+        schema_version:
+          type: integer
+          default: 1
+
+    PayloadValidationResponse:
+      type: object
+      properties:
+        is_valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        suggested_fixes:
+          type: array
+          items:
+            type: string
+        detected_schema_version:
+          type: integer
+
+    # Compliance Event Models
+    ComplianceEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        priority:
+          $ref: '#/components/schemas/EventPriority'
+        jurisdiction:
+          $ref: '#/components/schemas/Jurisdiction'
+        jurisdiction_id:
+          type: integer
+          writeOnly: true
+        due_date:
+          type: string
+          format: date-time
+        reminder_date:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        source:
+          $ref: '#/components/schemas/EventSource'
+        ai_session_id:
+          type: string
+          nullable: true
+          description: Session ID for AI-generated events
+        ai_research_query:
+          type: string
+          nullable: true
+          description: Original query used for AI research
+        event_data:
+          type: object
+          additionalProperties: true
+          description: Additional structured data about the event
+        related_tax_configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxConfig'
+          readOnly: true
+        created_by_name:
+          type: string
+          readOnly: true
+        updated_by_name:
+          type: string
+          readOnly: true
+        approved_by_name:
+          type: string
+          readOnly: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        rejection_reason:
+          type: string
+        days_until_due:
+          type: integer
+          readOnly: true
+          description: Number of days until due date
+        is_overdue:
+          type: boolean
+          readOnly: true
+          description: Whether the event is overdue
+        notes:
+          type: string
+      allOf:
+        - $ref: '#/components/schemas/Timestamp'
+
+    ComplianceEventDetail:
+      allOf:
+        - $ref: '#/components/schemas/ComplianceEvent'
+        - type: object
+          properties:
+            related_tax_config_ids:
+              type: array
+              items:
+                type: integer
+              writeOnly: true
+              description: Array of tax config IDs to associate
+
+    ComplianceEventCreate:
+      type: object
+      required: [title, event_type, jurisdiction_id, due_date]
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        priority:
+          $ref: '#/components/schemas/EventPriority'
+          default: medium
+        jurisdiction_id:
+          type: integer
+        due_date:
+          type: string
+          format: date-time
+        reminder_date:
+          type: string
+          format: date-time
+        event_data:
+          type: object
+          additionalProperties: true
+          default: {}
+        related_tax_config_ids:
+          type: array
+          items:
+            type: integer
+          description: Array of tax config IDs to associate
+        notes:
+          type: string
+
+    ComplianceEventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        priority:
+          $ref: '#/components/schemas/EventPriority'
+        due_date:
+          type: string
+          format: date-time
+        reminder_date:
+          type: string
+          format: date-time
+        event_data:
+          type: object
+          additionalProperties: true
+        related_tax_config_ids:
+          type: array
+          items:
+            type: integer
+        notes:
+          type: string
+
+    PendingComplianceEvent:
+      type: object
+      description: Compliance event in draft status awaiting approval
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/EventType'
+        priority:
+          $ref: '#/components/schemas/EventPriority'
+        jurisdiction:
+          $ref: '#/components/schemas/Jurisdiction'
+        due_date:
+          type: string
+          format: date-time
+        source:
+          $ref: '#/components/schemas/EventSource'
+        ai_session_id:
+          type: string
+          nullable: true
+        created_by_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        days_until_due:
+          type: integer
+        is_overdue:
+          type: boolean
+
+    PaginatedComplianceEvents:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceEvent'
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+
+    PaginatedPendingComplianceEvents:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingComplianceEvent'
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+
+    # Event Research Models
+    EventResearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          maxLength: 500
+          description: Natural language description of compliance events needed
+        jurisdiction_code:
+          type: string
+          maxLength: 20
+          description: Optional jurisdiction code filter
+        event_type:
+          $ref: '#/components/schemas/EventType'
+          description: Optional event type filter
+        date_range_start:
+          type: string
+          format: date
+          description: Optional start date for event search
+        date_range_end:
+          type: string
+          format: date
+          description: Optional end date for event search
+
+    EventResearchSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [running, completed, failed]
+        query:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+
+    EventResearchResult:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        query:
+          type: string
+        success:
+          type: boolean
+        events_found:
+          type: integer
+          description: Number of events discovered by AI
+        events_converted:
+          type: integer
+          description: Number of events successfully created
+        converted_events:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Raw event data from AI
+        validation_errors:
+          type: array
+          items:
+            type: string
+        pending_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingComplianceEvent'
+          description: Database records created and ready for approval
+        raw_agent_response:
+          type: object
+          additionalProperties: true
+          description: Complete unprocessed response from AI agent
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    # Event Approval Models
+    EventApprovalRequest:
+      type: object
+      properties:
+        effective_date:
+          type: string
+          format: date-time
+          description: When the event should become effective
+        notes:
+          type: string
+          maxLength: 1000
+          description: Optional approval notes
+
+    EventRejectionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+          description: Reason for rejection
+
+    BulkEventApprovalRequest:
+      type: object
+      required: [event_ids]
+      properties:
+        event_ids:
+          type: array
+          items:
+            type: integer
+          minItems: 1
+          maxItems: 50
+          description: Array of compliance event IDs to approve
+        notes:
+          type: string
+          maxLength: 1000
+          description: Optional approval notes
+
+    BulkEventApprovalResponse:
+      type: object
+      properties:
+        approved_count:
+          type: integer
+        error_count:
+          type: integer
+        approved_events:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              title:
+                type: string
+              status:
+                type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              event_id:
+                type: integer
+              error:
+                type: string
+
+    # Error Models
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        detail:
+          type: string
+          description: Detailed error information
+        code:
+          type: string
+          description: Error code for programmatic handling
+        timestamp:
+          type: string
+          format: date-time
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: General error message
+        field_errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Field-specific validation errors
+        non_field_errors:
+          type: array
+          items:
+            type: string
+          description: General validation errors
+
+  responses:
+    BadRequest:
+      description: Bad request - validation errors or malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+tags:
+  - name: Jurisdictions
+    description: Manage tax jurisdictions (federal, state, local)
+  - name: Tax Configurations
+    description: Manage tax configuration rules and definitions
+  - name: Agent Research
+    description: AI-powered tax research with real-time streaming
+  - name: Review & Approval
+    description: Compliance manager workflow for approving AI-generated taxes
+  - name: Tax Calculations
+    description: Calculate payroll tax liabilities
+  - name: Validation
+    description: Validate tax payloads and configurations
+  - name: Compliance Events
+    description: Manage compliance events and deadlines
+  - name: Event Research
+    description: AI-powered compliance event research and discovery
+  - name: Event Approval
+    description: Approval workflow for AI-generated compliance events

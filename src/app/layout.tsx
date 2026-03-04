@@ -1,21 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { DM_Sans, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import { QueryClientProvider } from "./providers/query-client-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
+import { Toaster } from "sonner";
+import { EnvDebug } from "@/components/debug/EnvDebug";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const dmSans = DM_Sans({
   subsets: ["latin"],
+  variable: "--font-dm-sans",
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
+  variable: "--font-plus-jakarta",
+  weight: ["500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
-  title: "Gimbal - NY Sales Tax",
-  description: "Interactive New York sales tax compliance tools - rate calculator, taxability wizard, compliance calendar, and research database.",
-  keywords: ["sales tax", "New York", "tax rates", "compliance", "MCTD", "technical bulletins"],
+  title: "Gimbal Tax",
+  description: "U.S. Sales Tax Compliance Engine - AI-powered tax research and management",
 };
 
 export default function RootLayout({
@@ -24,11 +29,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${dmSans.variable} ${plusJakarta.variable} font-sans antialiased`}>
+        <ThemeProvider defaultTheme="light" storageKey="ui-theme">
+          <QueryClientProvider>
+            {children}
+            <Toaster richColors position="top-right" />
+            <EnvDebug />
+          </QueryClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
