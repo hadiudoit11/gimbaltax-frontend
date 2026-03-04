@@ -12,7 +12,7 @@ const GENERAL_QUESTIONS = [
   "I sell software online — which states require me to collect sales tax?",
   "My company hit $100K in sales in Texas. Do I need to register?",
   "Is shipping and handling taxable or exempt?",
-  "What's the difference between origin-based and destination-based sourcing?",
+  "I sell on Amazon and Shopify — do marketplaces collect tax for me?",
 ];
 
 // State-specific question templates
