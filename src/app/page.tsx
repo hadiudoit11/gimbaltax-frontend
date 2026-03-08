@@ -1,264 +1,220 @@
 "use client";
 
-import { AppShell } from "@/components/layout/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Trash2, Info, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { USStatesMap } from "@/components/dashboard/us-states-map";
-import { useDashboardStats } from "@/hooks/use-dashboard-stats";
-import { 
-  Building2, 
-  FileText, 
-  Bot, 
-  Calculator,
-  AlertCircle,
-  Plus,
-  Loader2
-} from "lucide-react";
+import {
+  GimbalAvatar,
+  MessageList,
+  ChatInput,
+  StateSelector,
+  SuggestedQuestions,
+} from "@/components/chat";
+import { useSalesTaxChat, useLangchainStatus } from "@/hooks/api/use-sales-tax-chat";
 
-export default function Dashboard() {
-  const stats = useDashboardStats();
+export default function Home() {
+  const [selectedState, setSelectedState] = useState<string | null>(null);
+  const [showStatus, setShowStatus] = useState(false);
+
+  const {
+    messages,
+    isLoading,
+    thinkingMessage,
+    error,
+    sendMessage,
+    clearHistory,
+    cancelRequest,
+  } = useSalesTaxChat();
+
+  const { data: status } = useLangchainStatus();
+
+  const handleSend = (message: string) => {
+    sendMessage(message, selectedState || undefined);
+  };
+
+  const handleSuggestedQuestion = (question: string) => {
+    sendMessage(question, selectedState || undefined);
+  };
+
+  const hasMessages = messages.length > 0;
+
   return (
-    <AppShell>
-      <div className="space-y-6">
+    <div className="min-h-screen relative overflow-hidden">
+      {/* Animated gradient background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-violet-100 via-sky-100 to-emerald-100 dark:from-slate-950 dark:via-violet-950/50 dark:to-slate-900" />
+
+      {/* Animated mesh blobs */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-gradient-to-br from-purple-400/40 to-pink-400/40 rounded-full blur-3xl animate-blob" />
+        <div className="absolute top-40 -right-40 w-96 h-96 bg-gradient-to-br from-cyan-400/40 to-blue-400/40 rounded-full blur-3xl animate-blob animation-delay-2000" />
+        <div className="absolute -bottom-40 left-1/3 w-80 h-80 bg-gradient-to-br from-emerald-400/30 to-teal-400/30 rounded-full blur-3xl animate-blob animation-delay-4000" />
+        <div className="absolute top-1/2 left-1/4 w-64 h-64 bg-gradient-to-br from-orange-300/30 to-amber-300/30 rounded-full blur-3xl animate-blob-slow" />
+      </div>
+
+      {/* Subtle grid pattern overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.02)_1px,transparent_1px)] bg-[size:40px_40px] dark:bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)]" />
+
+      {/* Chat container */}
+      <div className="relative flex flex-col h-screen max-w-3xl mx-auto bg-background/80 backdrop-blur-xl shadow-2xl border-x border-white/20 dark:border-white/5">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent dark:from-purple-400 dark:via-pink-400 dark:to-cyan-400">
-              Dashboard
-            </h1>
-            <p className="text-gray-600 dark:text-slate-400 mt-2 text-sm sm:text-base lg:text-lg">
-              Welcome back to the Payroll Tax Engine
-            </p>
+        <header className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-background/95 backdrop-blur-xl">
+          <div className="flex items-center gap-4">
+            <GimbalAvatar size="md" />
+            <div>
+              <h1 className="font-semibold text-lg tracking-tight">Gimbal</h1>
+              <p className="text-xs text-muted-foreground font-medium">Sales Tax Assistant</p>
+            </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button className="gradient-button shadow-lg shadow-purple-600/25 justify-center" asChild>
-              <a href="/tax-configs?tab=create">
-                <Plus className="h-4 w-4 mr-2" />
-                <span className="hidden xs:inline">New Tax Config</span>
-                <span className="xs:hidden">New Config</span>
-              </a>
+
+          <div className="flex items-center gap-2">
+            <StateSelector value={selectedState} onChange={setSelectedState} />
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowStatus(!showStatus)}
+              className={`h-9 w-9 rounded-xl transition-colors ${showStatus ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Show status"
+            >
+              <Info size={17} />
             </Button>
-            <Button variant="outline" asChild className="justify-center">
-              <a href="/tax-configs?tab=research">
-                <Bot className="h-4 w-4 mr-2" />
-                <span className="hidden xs:inline">Start AI Research</span>
-                <span className="xs:hidden">AI Research</span>
-              </a>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={clearHistory}
+              disabled={!hasMessages}
+              className="h-9 w-9 rounded-xl text-muted-foreground hover:text-destructive disabled:opacity-40"
+              title="Clear conversation"
+            >
+              <Trash2 size={17} />
             </Button>
           </div>
-        </div>
+        </header>
 
-        {/* Overview Cards */}
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="stat-card-blue border-none shadow-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-white">
-                Active Tax Configs
-              </CardTitle>
-              <FileText className="h-4 w-4 text-white/90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-white">
-                {stats.loading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  stats.activeTaxConfigs.toLocaleString()
-                )}
+        {/* Status panel */}
+        {showStatus && status && (
+          <div className="px-5 py-3 border-b border-border/50 bg-muted/30 animate-message-slide">
+            <div className="flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${status.status === "operational" ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-amber-500"}`} />
+                <span className="text-muted-foreground">Status:</span>
+                <span className="font-medium capitalize">{status.status}</span>
               </div>
-              <p className="text-xs text-white/70">
-                {stats.error ? (
-                  <span className="text-white/90">Fallback data</span>
-                ) : (
-                  <>↑2 from last month</>
-                )}
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="stat-card-purple border-none shadow-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-white">
-                Jurisdictions
-              </CardTitle>
-              <Building2 className="h-4 w-4 text-white/90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-white">
-                {stats.loading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  stats.jurisdictions.toLocaleString()
-                )}
+              <div className="text-muted-foreground">
+                <span className="font-semibold text-foreground">{status.vector_store.document_count.toLocaleString()}</span> government docs
               </div>
-              <p className="text-xs text-white/70">
-                Federal, state & local
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="stat-card-orange border-none shadow-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-white">
-                Pending Reviews
-              </CardTitle>
-              <AlertCircle className="h-4 w-4 text-white/90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-white">
-                {stats.loading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  stats.pendingReviews.toLocaleString()
-                )}
-              </div>
-              <p className="text-xs text-white/70">
-                Awaiting approval
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="stat-card-green border-none shadow-xl">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-white">
-                Calculations Today
-              </CardTitle>
-              <Calculator className="h-4 w-4 text-white/90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-white">
-                {stats.loading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  stats.calculationsToday.toLocaleString()
-                )}
-              </div>
-              <p className="text-xs text-white/70">
-                ↗24% from yesterday
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* US States Map */}
-        <USStatesMap />
-
-        {/* Recent Activity & Quick Actions */}
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
-          <Card className="gradient-card border-gray-200 dark:border-slate-600/50">
-            <CardHeader>
-              <CardTitle className="text-gray-800 dark:text-slate-200">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-4">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-800 dark:text-slate-200">NY SUI rate updated</p>
-                  <p className="text-xs text-gray-600 dark:text-slate-400">5 minutes ago</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-800 dark:text-slate-200">Agent research completed</p>
-                  <p className="text-xs text-gray-600 dark:text-slate-400">2 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-800 dark:text-slate-200">California taxes pending review</p>
-                  <p className="text-xs text-gray-600 dark:text-slate-400">4 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-800 dark:text-slate-200">New jurisdiction added: Austin, TX</p>
-                  <p className="text-xs text-gray-600 dark:text-slate-400">1 day ago</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="gradient-card border-gray-200 dark:border-slate-600/50">
-            <CardHeader>
-              <CardTitle className="text-gray-800 dark:text-slate-200">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Button className="w-full stat-card-blue border-none text-white hover:opacity-90" size="lg">
-                <Calculator className="h-4 w-4 mr-2" />
-                Run Tax Calculation
-              </Button>
-              <Button className="w-full stat-card-purple border-none text-white hover:opacity-90" size="lg" asChild>
-                <a href="/tax-configs?tab=research">
-                  <Bot className="h-4 w-4 mr-2" />
-                  Start AI Research
-                </a>
-              </Button>
-              <Button className="w-full stat-card-orange border-none text-white hover:opacity-90" size="lg">
-                <Building2 className="h-4 w-4 mr-2" />
-                Add New Jurisdiction
-              </Button>
-              <Button className="w-full stat-card-green border-none text-white hover:opacity-90" size="lg" asChild>
-                <a href="/tax-configs?tab=create">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Create Tax Configuration
-                </a>
-              </Button>
-              <Button className="w-full border-2 border-purple-500 bg-transparent text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/20" size="lg" asChild>
-                <a href="/tax-configs?tab=pending">
-                  <AlertCircle className="h-4 w-4 mr-2" />
-                  Review Pending Items
-                </a>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Tax Categories Overview */}
-        <Card className="gradient-card border-gray-200 dark:border-slate-600/50">
-          <CardHeader>
-            <CardTitle className="text-gray-800 dark:text-slate-200">Tax Categories Overview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-3 lg:grid-cols-3">
-              <div className="text-center p-6 rounded-2xl bg-white border-2 border-gray-100 shadow-lg dark:bg-slate-800/30 dark:border-slate-600/50 dark:backdrop-blur-sm">
-                <FileText className="h-8 w-8 text-blue-500 mx-auto mb-2" />
-                <div className="text-3xl font-bold text-blue-500">
-                  {stats.loading ? (
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                  ) : (
-                    stats.taxCategories.income_tax.toLocaleString()
-                  )}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-slate-400">Income Tax</p>
-              </div>
-              <div className="text-center p-6 rounded-2xl bg-white border-2 border-gray-100 shadow-lg dark:bg-slate-800/30 dark:border-slate-600/50 dark:backdrop-blur-sm">
-                <Building2 className="h-8 w-8 text-purple-500 mx-auto mb-2" />
-                <div className="text-3xl font-bold text-purple-500">
-                  {stats.loading ? (
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                  ) : (
-                    stats.taxCategories.social_insurance.toLocaleString()
-                  )}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-slate-400">Social Insurance</p>
-              </div>
-              <div className="text-center p-6 rounded-2xl bg-white border-2 border-gray-100 shadow-lg dark:bg-slate-800/30 dark:border-slate-600/50 dark:backdrop-blur-sm">
-                <AlertCircle className="h-8 w-8 text-orange-500 mx-auto mb-2" />
-                <div className="text-3xl font-bold text-orange-500">
-                  {stats.loading ? (
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                  ) : (
-                    stats.taxCategories.unemployment.toLocaleString()
-                  )}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-slate-400">Unemployment</p>
+              <div className="text-muted-foreground">
+                Model: <span className="font-medium text-foreground">{status.agent.llm_provider}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        )}
+
+        {/* Chat area */}
+        {!hasMessages ? (
+          /* Welcome screen */
+          <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
+            <div className="text-center max-w-lg space-y-8">
+              {/* Avatar with glow */}
+              <div className="relative inline-block">
+                <div className="absolute inset-0 blur-2xl opacity-30 bg-primary rounded-full scale-150" />
+                <GimbalAvatar size="xl" className="relative" />
+              </div>
+
+              {/* Welcome text */}
+              <div className="space-y-3">
+                <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
+                  Hey, I'm Gimbal
+                </h2>
+                <p className="text-muted-foreground text-[15px] leading-relaxed max-w-md mx-auto">
+                  Your sales tax expert, powered by 54,000+ official government documents across 22 states. Ask me anything — from nexus thresholds to SaaS taxability.
+                </p>
+              </div>
+
+              {/* Suggestions card */}
+              <div className="welcome-card rounded-2xl p-5 text-left">
+                <SuggestedQuestions
+                  stateCode={selectedState}
+                  onSelect={handleSuggestedQuestion}
+                />
+              </div>
+
+              {/* Trust badge */}
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground/80">
+                <Zap size={12} className="text-primary" />
+                <span>Only cites official .gov sources</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Message list */
+          <MessageList
+            messages={messages}
+            isLoading={isLoading}
+            thinkingMessage={thinkingMessage}
+          />
+        )}
+
+        {/* Error display */}
+        {error && (
+          <div className="px-5 py-3 bg-destructive/5 border-y border-destructive/10 text-destructive text-sm text-center font-medium animate-message-slide">
+            {error}
+          </div>
+        )}
+
+        {/* Suggested questions after messages */}
+        {hasMessages && !isLoading && (
+          <div className="px-5 py-4 border-t border-border/50 bg-muted/20">
+            <SuggestedQuestions
+              stateCode={selectedState}
+              onSelect={handleSuggestedQuestion}
+            />
+          </div>
+        )}
+
+        {/* Input */}
+        <ChatInput
+          onSend={handleSend}
+          onCancel={cancelRequest}
+          isLoading={isLoading}
+          disabled={false}
+          placeholder={
+            selectedState
+              ? `Ask about ${selectedState} sales tax...`
+              : "Ask me anything about sales tax..."
+          }
+        />
+
+        {/* Footer */}
+        <footer className="text-center py-2.5 text-[11px] text-muted-foreground/60 border-t border-border/30 bg-background/60 backdrop-blur-sm">
+          <span className="font-medium">Gimbal</span> • AI-powered sales tax research
+        </footer>
       </div>
-    </AppShell>
+    </div>
   );
 }
+
+/* ============================================================
+ * COMMENTED OUT: Original Dashboard component
+ * Preserved for future use - can be moved to /dashboard route
+ * ============================================================
+ *
+ * import { AppShell } from "@/components/layout/app-shell";
+ * import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ * import { Button } from "@/components/ui/button";
+ * import { USStatesMap } from "@/components/dashboard/us-states-map";
+ * import { useDashboardStats } from "@/hooks/use-dashboard-stats";
+ * import { Building2, FileText, Bot, Calculator, AlertCircle, Plus, Loader2 } from "lucide-react";
+ *
+ * export default function Dashboard() {
+ *   const stats = useDashboardStats();
+ *   return (
+ *     <AppShell>
+ *       <div className="space-y-6">
+ *         ... (full dashboard JSX preserved)
+ *       </div>
+ *     </AppShell>
+ *   );
+ * }
+ */
