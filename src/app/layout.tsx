@@ -4,7 +4,6 @@ import "./globals.css";
 import { QueryClientProvider } from "./providers/query-client-provider";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { Toaster } from "sonner";
-import { EnvDebug } from "@/components/debug/EnvDebug";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -35,7 +34,6 @@ export default function RootLayout({
           <QueryClientProvider>
             {children}
             <Toaster richColors position="top-right" />
-            <EnvDebug />
           </QueryClientProvider>
         </ThemeProvider>
       </body>
