@@ -128,7 +128,7 @@ export default function Home() {
                   Hey, I'm Gimbal
                 </h2>
                 <p className="text-muted-foreground text-[15px] leading-relaxed max-w-md mx-auto">
-                  Your sales tax expert, powered by 54,000+ official government documents across 22 states. Ask me anything — from nexus thresholds to SaaS taxability.
+                  Your sales tax expert, powered by 45,000+ official government documents across all 50 states. Ask me anything — from nexus thresholds to SaaS taxability.
                 </p>
               </div>
 
