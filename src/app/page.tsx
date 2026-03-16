@@ -7,13 +7,11 @@ import {
   GimbalAvatar,
   MessageList,
   ChatInput,
-  StateSelector,
   SuggestedQuestions,
 } from "@/components/chat";
 import { useSalesTaxChat, useLangchainStatus } from "@/hooks/api/use-sales-tax-chat";
 
 export default function Home() {
-  const [selectedState, setSelectedState] = useState<string | null>(null);
   const [showStatus, setShowStatus] = useState(false);
 
   const {
@@ -29,11 +27,11 @@ export default function Home() {
   const { data: status } = useLangchainStatus();
 
   const handleSend = (message: string) => {
-    sendMessage(message, selectedState || undefined);
+    sendMessage(message);
   };
 
   const handleSuggestedQuestion = (question: string) => {
-    sendMessage(question, selectedState || undefined);
+    sendMessage(question);
   };
 
   const hasMessages = messages.length > 0;
@@ -67,8 +65,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            <StateSelector value={selectedState} onChange={setSelectedState} />
-
             <Button
               variant="ghost"
               size="icon"
@@ -135,7 +131,7 @@ export default function Home() {
               {/* Suggestions card */}
               <div className="welcome-card rounded-2xl p-5 text-left">
                 <SuggestedQuestions
-                  stateCode={selectedState}
+                  stateCode={null}
                   onSelect={handleSuggestedQuestion}
                 />
               </div>
@@ -167,7 +163,7 @@ export default function Home() {
         {hasMessages && !isLoading && (
           <div className="px-5 py-4 border-t border-border/50 bg-muted/20">
             <SuggestedQuestions
-              stateCode={selectedState}
+              stateCode={null}
               onSelect={handleSuggestedQuestion}
             />
           </div>
@@ -179,11 +175,7 @@ export default function Home() {
           onCancel={cancelRequest}
           isLoading={isLoading}
           disabled={false}
-          placeholder={
-            selectedState
-              ? `Ask about ${selectedState} sales tax...`
-              : "Ask me anything about sales tax..."
-          }
+          placeholder="Ask me anything about sales tax..."
         />
 
         {/* Footer */}
